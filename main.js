@@ -57,7 +57,7 @@ function createKnex(){
 function parseArguments(){
     return yargs
         .command('download-files', 'Download rdf-files.tar.zip​and extract files', {})
-        .command('init-database-schema', 'Create necessarily tables', {})
+        .command('init-database-schema', 'Reinitialize necessarily tables', {})
         .command('parse-single-book', 'Parse single .rdf file from cache',  {
             id: {
                 demandOption: true,

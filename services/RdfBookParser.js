@@ -80,7 +80,7 @@ class RdfBookParser {
 
         book.publisher = traverseDownAndAggregate(pgTerms, ['dcterms:publisher'])[0] || '';
 
-        let publishedAt = traverseDownAndAggregate(pgTerms, ['dcterms:issued'])[0];
+        let publishedAt = traverseDownAndAggregate(pgTerms, ['dcterms:issued', '_'])[0];
         publishedAt = publishedAt && new Date(publishedAt);
         book.publishedAt = publishedAt && !isNaN(publishedAt) && publishedAt || null;
 
@@ -95,12 +95,7 @@ class RdfBookParser {
             }
         }
 
-        let licensesWithNs = traverseDownAndAggregate(rdfRoot, ['cc:Work', 'cc:license', '$', 'rdf:resource']);
-
-        const DEFAULT_LICENSE_NS = 'https://creativecommons.org/publicdomain/';
-        book.licenses = licensesWithNs.map(license =>{
-            return license.startsWith(DEFAULT_LICENSE_NS) ? license.slice(DEFAULT_LICENSE_NS.length) : license;
-        });
+        book.licenses = traverseDownAndAggregate(rdfRoot, ['cc:Work', 'cc:license', '$', 'rdf:resource']);
 
         return book;
 

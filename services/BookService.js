@@ -97,7 +97,7 @@ class BookService{
                 id: rdfBook.id,
                 title: rdfBook.title,
                 publisher: rdfBook.publisher,
-                published_at: rdfBook.publishedAt,
+                published_at: rdfBook.publishedAt || '0000-00-00 00:00:00',
                 language: rdfBook.language,
                 license: rdfBook.licenses.join('; '),
             }).into('book');

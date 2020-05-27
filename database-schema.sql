@@ -16,7 +16,7 @@ CREATE TABLE `book` (
     `id` int(11) NOT NULL,
     `title` text,
     `publisher` varchar(255) DEFAULT NULL,
-    `published_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `published_at` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
     `language` varchar(255) DEFAULT NULL,
     `license` varchar(255) DEFAULT NULL,
     PRIMARY KEY (`id`),
@@ -31,7 +31,7 @@ CREATE TABLE `book_author` (
        PRIMARY KEY (`id`),
        KEY `book_id` (`book_id`),
        KEY `author_id` (`author_id`),
-       CONSTRAINT `idx__book_author__book_id` FOREIGN KEY (`book_id`) REFERENCES `book` (`id`),
+       CONSTRAINT `idx__book_author__book_id` FOREIGN KEY (`book_id`) REFERENCES `book` (`id`) ON DELETE CASCADE,
        CONSTRAINT `idx__book_author__author_id` FOREIGN KEY (`author_id`) REFERENCES `author` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
@@ -42,6 +42,7 @@ CREATE TABLE `book_subject` (
     `book_id` int(11) DEFAULT NULL,
     `subject` text,
     PRIMARY KEY (`id`),
-    KEY `idx__book_subject__subject` (`subject`(100))
+    KEY `idx__book_subject__subject` (`subject`(100)),
+    CONSTRAINT `idx__book_subject__book_id` FOREIGN KEY (`book_id`) REFERENCES `book` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
