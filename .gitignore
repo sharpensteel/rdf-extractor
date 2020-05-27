@@ -1,0 +1,6 @@
+.idea
+node_modules
+/config/local-*
+!/config/local-*.example
+/rdf-files.tar.zip
+/cache

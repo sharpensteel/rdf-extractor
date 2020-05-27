@@ -1,0 +1,8 @@
+{
+    "dbConfig": {
+        "host": "127.0.0.1",
+        "user": "xxxx",
+        "password": "xxxx",
+        "database": "xxxx"
+    }
+}
