@@ -1,3 +1,4 @@
+
 /**
  * Disclaimer:
  *
@@ -46,7 +47,7 @@ function createKnex(){
         client: 'mysql',
         connection: {
             multipleStatements: true,
-            ...config.get('dbConfig')
+            ...config.get('dbConfig'),
         },
     });
     return knex;
@@ -73,7 +74,6 @@ function parseArguments(){
 
 
 async function main() {
-    //debugger;
 
     /**
      * simple functions for working with dependencies:

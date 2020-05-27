@@ -1,5 +1,6 @@
 const RdfBookParser = require('./RdfBookParser');
 const Author = require('../models/Author');
+const Knex = require('knex');
 
 /**
  * service for storing RdfBook models in database
@@ -21,108 +22,105 @@ class BookService{
 
 
     async cleanAll(){
-        await this.knex('book_artist').del();
+        await this.knex('book_author').del();
         await this.knex('book_subject').del();
         await this.knex('book').del();
-        await this.knex('artist').del();
+        await this.knex('author').del();
     }
 
 
     /**
      * addressing n+1 problem for authors
      *
-     * @param {string[]} authorsNames
+     * @param {string[]} authorsNamesLc
      * @return {Promise<Map<string, number>>}
      */
-    async getAuthorsIdsPerNames(authorsNames){
+    async getAuthorsIdsPerNamesLc(authorsNamesLc){
 
-        authorsNames = [...new Set(authorsNames)].filter(name => name);
+        authorsNamesLc = [...new Set(authorsNamesLc)].filter(name => name).map(name => name.toLocaleLowerCase());
 
-        if(!authorsNames.length){
+        if(!authorsNamesLc.length){
             return new Map;
         }
-        let rows = await this.knex('author').select('id', 'name').whereIn('name', authorsNames);
+        let rows = await this.knex('author').select('id', 'name').whereIn(this.knex.raw('LOWER(NAME)'), authorsNamesLc);
         
         let idsPerNames = new Map(); 
         for(let row of rows){
-            idsPerNames.set(row['name'], parseInt(row['id']));
+            idsPerNames.set(row['name'].toLocaleLowerCase(), parseInt(row['id']));
         }
         return idsPerNames;
     }
 
 
-    async storeAuthorWithName(name){
+    /**
+     * @param {string} name
+     * @param {?Knex.Transaction} transaction
+     * @return {Promise<Author>}
+     */
+    async storeAuthorWithName(name, transaction){
         let author = new Author();
         author.name = name;
 
-        let ids = this.knex('author').returning('id').insert({name});
-        debugger;
-        author.id = ids[0];
+        let res = await (transaction || this.knex).insert({name}).into('author');
+        author.id = res[0];
         return author;
     }
 
     /**
      * @param {RdfBook} rdfBook
-     * @param {?Map<string, number>} authorsIdsPerNamesStored
-     * @return {Promise<number>}
+     * @param {?Map<string, number>} authorsIdsPerNamesLcStored
+     * @return {Promise}
      */
-    async storeBookWithRelations(rdfBook, authorsIdsPerNamesStored= null){
+    async storeBookWithRelations(rdfBook, authorsIdsPerNamesLcStored= null){
         
-        if(authorsIdsPerNamesStored){
-            authorsIdsPerNamesStored = await this.getAuthorsIdsPerNames(rdfBook.authors || [])
+        if(!authorsIdsPerNamesLcStored){
+            authorsIdsPerNamesLcStored = await this.getAuthorsIdsPerNamesLc(rdfBook.authors || [])
         }
 
-        let bookIdSaved = this.knex.transaction(async (trx) => {
-            try{
+        let newAuthors = [];
 
-                let newAuthors = [];
-                let authorsIdsSet = new Set;
+        await this.knex.transaction(async (trx) => {
 
-                for(let authorName of (rdfBook.authors || [])){
-                    let authorId = authorsIdsPerNamesStored.get(authorName);
-                    if(!authorId){
-                        let author = await this.storeAuthorWithName(name);
-                        newAuthors.push(author);
-                        authorId = author.id;
-                    }
-                    authorsIdsSet.add(authorId);
+            let authorsIdsSet = new Set;
+
+            for(let authorName of (rdfBook.authors || [])){
+                let authorId = authorsIdsPerNamesLcStored.get(authorName.toLocaleLowerCase());
+                if(!authorId){
+                    let author = await this.storeAuthorWithName(authorName, trx);
+                    newAuthors.push(author);
+                    authorId = author.id;
                 }
-
-                let bookId = await this.knex('book').returning('id').insert({
-                    title: rdfBook.title,
-                    publisher: rdfBook.publisher,
-                    published_at: rdfBook.publishedAt,
-                    language: rdfBook.language,
-                    license: rdfBook.licenses.join('; '),
-                });
-
-                for(let subject of rdfBook.subjects || []){
-                    await this.knex('book_subject').insert({
-                        book_id: bookId,
-                        subject,
-                    });
-                }
-
-                for(let authorId of authorsIdsSet.entries()){
-                    await this.knex('book_author').insert({
-                        book_id: bookId,
-                        author_id: authorId,
-                    });
-                }
-
-                trx.commit();
-
-                for(let author of newAuthors){
-                    authorsIdsPerNamesStored.set(author.name, author.id);
-                }
-                return bookId;
+                authorsIdsSet.add(authorId);
             }
-            catch (e) {
-                trx.rollback(e);
+
+            await trx.insert({
+                id: rdfBook.id,
+                title: rdfBook.title,
+                publisher: rdfBook.publisher,
+                published_at: rdfBook.publishedAt,
+                language: rdfBook.language,
+                license: rdfBook.licenses.join('; '),
+            }).into('book');
+
+            for(let subject of rdfBook.subjects || []){
+                await trx.insert({
+                    book_id: rdfBook.id,
+                    subject,
+                }).into('book_subject');
+            }
+
+            for(let authorId of authorsIdsSet.values()){
+                await trx.insert({
+                    book_id: rdfBook.id,
+                    author_id: authorId,
+                }).into('book_author');
             }
         });
 
-        return bookIdSaved;
+        for(let author of newAuthors){
+            let nameLc = author.name && author.name.toLocaleLowerCase();
+            nameLc && authorsIdsPerNamesLcStored.set(nameLc, author.id);
+        }
     }
 
 
@@ -148,7 +146,8 @@ class BookService{
 
             let existingBooksIds = new Set;
             if(!needCleanAll){
-                existingBooksIds = this.knex('book').select('id').whereIn('id', chunkIds).map(row => row['id']);
+                let existingRows = await this.knex('book').select('id').whereIn('id', chunkIds);
+                existingBooksIds = new Set(existingRows.map(row => row['id']));
                 // todo: should we handle case when book was deleted on source site?
             }
 
@@ -158,7 +157,6 @@ class BookService{
                 if(existingBooksIds.has(bookId)){
                     continue;
                 }
-                //authorsIdsPerNamesStored = await this.getAuthorsIdsPerNames(book.authors || [])
 
                 let book;
                 try{
@@ -171,20 +169,22 @@ class BookService{
                 books.push(book);
             }
 
-            let chunkAuthorsNames = books.reduce((acc,book) => book.authors && acc.push(...book.authors), []);
-            let authorsIdsPerNames = await this.getAuthorsIdsPerNames(chunkAuthorsNames);
+            let chunkAuthorsNames = books.reduce((acc,book) => { book.authors && acc.push(...book.authors); return acc; }, []);
+            let authorsIdsPerNamesLc = await this.getAuthorsIdsPerNamesLc(chunkAuthorsNames);
 
             for(let book of books){
                 try{
-                    await this.storeBookWithRelations(book, authorsIdsPerNames);
+                    await this.storeBookWithRelations(book, authorsIdsPerNamesLc);
                 }
                 catch (e) {
-                    e.message = `unable to store book #${bookId}: ${e.message}`;
+                    e.message = `unable to store book #${book.id}: ${e.message}`;
                     throw e;
                 }
             }
-
             indexChunkStart += chunkIds.length;
+
+            console.log(`${indexChunkStart} books done`);
+
         }
 
 

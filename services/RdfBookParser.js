@@ -2,6 +2,7 @@ const xml2js = require('xml2js');
 const _ = require('lodash');
 const path = require('path');
 const fse = require('fs-extra');
+const download = require('download');
 const assert = require("chai").assert;
 const RdfBook = require("../models/RdfBook");
 const {traverseDownAndAggregate} = require("../helpers/RdfHelper");
@@ -44,7 +45,6 @@ class RdfBookParser {
                 return rdfValue;
             }
             default:{
-                debugger;
             }
         }
 
@@ -78,16 +78,11 @@ class RdfBookParser {
 
         book.authors = traverseDownAndAggregate(pgTerms, ['dcterms:creator', 'pgterms:agent', 'pgterms:name']);
 
-        if(book.authors.length !== 1){
-            debugger;
-        }
-
         book.publisher = traverseDownAndAggregate(pgTerms, ['dcterms:publisher'])[0] || '';
 
         let publishedAt = traverseDownAndAggregate(pgTerms, ['dcterms:issued'])[0];
         publishedAt = publishedAt && new Date(publishedAt);
         book.publishedAt = publishedAt && !isNaN(publishedAt) && publishedAt || null;
-
 
         book.language = traverseDownAndAggregate(pgTerms, ['dcterms:language','rdf:Description', 'rdf:value', '_'])[0]
 
@@ -105,11 +100,7 @@ class RdfBookParser {
         const DEFAULT_LICENSE_NS = 'https://creativecommons.org/publicdomain/';
         book.licenses = licensesWithNs.map(license =>{
             return license.startsWith(DEFAULT_LICENSE_NS) ? license.slice(DEFAULT_LICENSE_NS.length) : license;
-        } )
-
-        if(book.licenses.length !== 1){
-            debugger;
-        }
+        });
 
         return book;
 
@@ -143,7 +134,7 @@ class RdfBookParser {
 
         console.log('cleaning files ...');
 
-        await fse.remove(RDF_DIRECTORIES_DIR);
+        await fse.remove(this.rdfDirectoriesDir);
         await fse.remove(zipPath);
 
         console.log(`downloading ${zipUrl} ...`);

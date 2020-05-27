@@ -14,15 +14,18 @@
     "knex": "^0.21.1",
     "lodash": "^4.17.15",
     "mysql": "^2.18.1",
-    "mz": "^2.7.0",
     "xml2js": "^0.4.23",
     "yargs": "^15.3.1",
     "mocha": "^7.2.0",
     "nyc": "^15.0.1"
   },
   "scripts": {
-    "init-tables": "node --harmony main.js",
-    "download-files": "scripts/download-files.js",
+    "help": "node --harmony main.js --help",
+    "init-database-schema": "node --harmony main.js init-database-schema",
+    "download-files": "node --harmony main.js download-files",
+    "parse-single-book": "node --harmony main.js parse-single-book --id $npm_config_id",
+    "parse-all-books": "node --harmony main.js parse-all-books",
+    "parse-all-books-clean": "node --harmony main.js parse-all-books-clean",
     "test": "mocha"
   }
 }
