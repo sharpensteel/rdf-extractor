@@ -6,8 +6,8 @@ class RdfBook{
         /** @type {?string} */
         this.title = null;
 
-        /** @type {?string[]} */
-        this.authors = null;
+        /** @type {?Agent[]} */
+        this.creators = null;
 
         /** @type {?string} */
         this.publisher = null;

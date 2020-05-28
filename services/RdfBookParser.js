@@ -5,6 +5,7 @@ const fse = require('fs-extra');
 const download = require('download');
 const assert = require("chai").assert;
 const RdfBook = require("../models/RdfBook");
+const Agent = require("../models/Agent");
 const {traverseDownAndAggregate} = require("../helpers/RdfHelper");
 const {execPromisified} = require("../helpers/NodeHelper");
 
@@ -50,6 +51,19 @@ class RdfBookParser {
 
     }
 
+
+    /**
+     * @param {Object} node
+     * @return {Agent}
+     */
+    agentNodeToModel(node){
+        let agent = new Agent;
+        agent.rdfUri = traverseDownAndAggregate(node,['$','rdf:about'])[0];
+        agent.name = traverseDownAndAggregate(node,['pgterms:name'])[0];
+        agent.aliases = traverseDownAndAggregate(node,['pgterms:alias']);
+        return agent;
+    }
+
     /**
      *
      * @param {string} xmlContent
@@ -76,7 +90,8 @@ class RdfBookParser {
 
         book.title = traverseDownAndAggregate(pgTerms, ['dcterms:title'])[0] || '';
 
-        book.authors = traverseDownAndAggregate(pgTerms, ['dcterms:creator', 'pgterms:agent', 'pgterms:name']);
+        book.creators = traverseDownAndAggregate(pgTerms, ['dcterms:creator', 'pgterms:agent'])
+            .map(agentNode => this.agentNodeToModel(agentNode));
 
         book.publisher = traverseDownAndAggregate(pgTerms, ['dcterms:publisher'])[0] || '';
 
@@ -117,6 +132,24 @@ class RdfBookParser {
     async scanBooksIds(){
         let baseNames = await fse.readdir(this.rdfDirectoriesDir);
         return baseNames.map(bn => parseInt(bn, 10)).filter(id => id);
+    }
+
+    /**
+     * yields pairs of [RdfBook, id]; or [Error, id] in case of error
+     *
+     * @return {AsyncGenerator<Array<number|RdfBook|Error>>}
+     */
+    async* iterateAllBooksWithIds() {
+        let ids = await this.scanBooksIds();
+        for(let id of ids){
+            try{
+                let book = await this.parseRdfBookById(id);
+                yield [book, id];
+            }
+            catch (e) {
+                yield [e, id];
+            }
+        }
     }
 
     /**

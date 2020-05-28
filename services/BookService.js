@@ -1,5 +1,5 @@
-const RdfBookParser = require('./RdfBookParser');
-const Author = require('../models/Author');
+const RdfBook = require('../models/RdfBook');
+const Agent = require('../models/Agent');
 const Knex = require('knex');
 
 /**
@@ -9,88 +9,81 @@ class BookService{
 
     /**
      * @param {Knex} knex
-     * @param {RdfBookParser} rdfBookParser
      */
-    constructor({knex, rdfBookParser}) {
+    constructor({knex}) {
 
         /** @type {Knex} */
         this.knex = knex;
-
-        /** @type {RdfBookParser} */
-        this.rdfBookParser = rdfBookParser;
     }
 
 
     async cleanAll(){
-        await this.knex('book_author').del();
+        await this.knex('book_creator').del();
         await this.knex('book_subject').del();
         await this.knex('book').del();
-        await this.knex('author').del();
+        await this.knex('agent').del();
     }
 
 
     /**
-     * addressing n+1 problem for authors
+     * addressing n+1 problem for agents
      *
-     * @param {string[]} authorsNamesLc
+     * @param {string[]} agentsUris
      * @return {Promise<Map<string, number>>}
      */
-    async getAuthorsIdsPerNamesLc(authorsNamesLc){
+    async getAgentsIdsByUris(agentsUris){
 
-        authorsNamesLc = [...new Set(authorsNamesLc)].filter(name => name).map(name => name.toLocaleLowerCase());
-
-        if(!authorsNamesLc.length){
-            return new Map;
-        }
-        let rows = await this.knex('author').select('id', 'name').whereIn(this.knex.raw('LOWER(NAME)'), authorsNamesLc);
+        let rows = await this.knex('agent').select('id', 'rdf_uri').whereIn('rdf_uri', agentsUris);
         
-        let idsPerNames = new Map(); 
+        let idsPerUris = new Map();
         for(let row of rows){
-            idsPerNames.set(row['name'].toLocaleLowerCase(), parseInt(row['id']));
+            idsPerUris.set(row['rdf_uri'], parseInt(row['id']));
         }
-        return idsPerNames;
+        return idsPerUris;
     }
 
 
     /**
-     * @param {string} name
+     * @param {Agent} agent
      * @param {?Knex.Transaction} transaction
-     * @return {Promise<Author>}
+     * @return {Promise<number>} new id
      */
-    async storeAuthorWithName(name, transaction){
-        let author = new Author();
-        author.name = name;
+    async storeAgent(agent, transaction){
 
-        let res = await (transaction || this.knex).insert({name}).into('author');
-        author.id = res[0];
-        return author;
+        let res = await (transaction || this.knex).insert({
+            name: agent.name,
+            rdf_uri: agent.rdfUri,
+        }).into('agent');
+
+        return res[0];
     }
 
     /**
      * @param {RdfBook} rdfBook
-     * @param {?Map<string, number>} authorsIdsPerNamesLcStored
+     * @param {?Map<string, number>} agentsIdsByUrisStored
      * @return {Promise}
      */
-    async storeBookWithRelations(rdfBook, authorsIdsPerNamesLcStored= null){
+    async storeBookWithRelations(rdfBook, agentsIdsByUrisStored= null){
         
-        if(!authorsIdsPerNamesLcStored){
-            authorsIdsPerNamesLcStored = await this.getAuthorsIdsPerNamesLc(rdfBook.authors || [])
+        if(!agentsIdsByUrisStored){
+            agentsIdsByUrisStored = await this.getAgentsIdsByUris((rdfBook.creators || []).map(agent => agent.rdfUri))
         }
 
-        let newAuthors = [];
+        /** @type {Map<string, number>}  key: agent's rdfUri */
+        let newAgentsIdsByUris = new Map;
 
         await this.knex.transaction(async (trx) => {
 
-            let authorsIdsSet = new Set;
+            let creatorsIdsSet = new Set;
 
-            for(let authorName of (rdfBook.authors || [])){
-                let authorId = authorsIdsPerNamesLcStored.get(authorName.toLocaleLowerCase());
-                if(!authorId){
-                    let author = await this.storeAuthorWithName(authorName, trx);
-                    newAuthors.push(author);
-                    authorId = author.id;
+            for(let agent of (rdfBook.creators || [])){
+                let agentId = agentsIdsByUrisStored.get(agent.rdfUri);
+                if(!agentId){
+                    let agentId = await this.storeAgent(agent, trx);
+                    newAgentsIdsByUris.set(agent.rdfUri, agentId);
+                    agentId = agent.id;
                 }
-                authorsIdsSet.add(authorId);
+                creatorsIdsSet.add(agentId);
             }
 
             await trx.insert({
@@ -109,81 +102,94 @@ class BookService{
                 }).into('book_subject');
             }
 
-            for(let authorId of authorsIdsSet.values()){
+            for(let agentId of creatorsIdsSet.values()){
                 await trx.insert({
                     book_id: rdfBook.id,
-                    author_id: authorId,
-                }).into('book_author');
+                    agent_id: agentId,
+                }).into('book_creator');
             }
         });
 
-        for(let author of newAuthors){
-            let nameLc = author.name && author.name.toLocaleLowerCase();
-            nameLc && authorsIdsPerNamesLcStored.set(nameLc, author.id);
+        for(let [uri, id] of newAgentsIdsByUris.entries()){
+            agentsIdsByUrisStored.set(uri, id);
         }
     }
 
 
     /**
      *
+     * @param {AsyncGenerator<Array<number|RdfBook|Error>>} generatorBooksWithIds
      * @param {boolean} needCleanAll  if true: all tables truncated; if false: stored only books that was not stored earlier
      * @return {Promise<void>}
      */
-    async storeAllBooks(needCleanAll){
+    async storeAllBooks(generatorBooksWithIds, needCleanAll){
 
         if(needCleanAll){
             await this.cleanAll();
         }
 
-        let booksIds = await this.rdfBookParser.scanBooksIds();
-
-
-        let indexChunkStart = 0;
         let chunkSize = 1000;
-        while(indexChunkStart < booksIds.length){
+        let countDone = 0;
 
-            let chunkIds = booksIds.slice(indexChunkStart, indexChunkStart + chunkSize);
+        /** @type {RdfBook[]} */
+        let chunkBooks = [];
+
+        while(true){
+
+            let {value, done} = await generatorBooksWithIds.next();
+
+            let [book, bookId] = value || [];
+
+
+            if(done){
+                if(!chunkBooks.length){
+                    break;
+                }
+            }
+            else{
+                countDone++;
+
+                if(book instanceof RdfBook){
+                    chunkBooks.push(book);
+                }
+                else{
+                    console.warn(`book rdf #${bookId} parse error: ${book}`);
+                    continue;
+                }
+            }
+
+            if(!done && chunkBooks.length < chunkSize){
+                continue;
+            }
+
 
             let existingBooksIds = new Set;
+            let booksToStore = chunkBooks;
+
             if(!needCleanAll){
-                let existingRows = await this.knex('book').select('id').whereIn('id', chunkIds);
+                let existingRows = await this.knex('book').select('id').whereIn('id', chunkBooks.map(book => book.id));
                 existingBooksIds = new Set(existingRows.map(row => row['id']));
+                booksToStore = chunkBooks.filter(book => !existingBooksIds.has(book.id));
+
                 // todo: should we handle case when book was deleted on source site?
             }
 
-            let books = [];
+            /** @type {Agent[]} */
+            let agents = booksToStore.reduce((acc,book) => { book.creators && acc.push(...book.creators); return acc; }, []);
+            let agentsIdsPerUris = await this.getAgentsIdsByUris(agents.map(agent => agent.rdfUri));
 
-            for(let bookId of chunkIds){
-                if(existingBooksIds.has(bookId)){
-                    continue;
-                }
-
-                let book;
+            for(let book of booksToStore){
                 try{
-                    book = await this.rdfBookParser.parseRdfBookById(bookId);
-                }
-                catch (e) {
-                    console.warn(`book rdf #${bookId} parse error: ${e}`);
-                    continue;
-                }
-                books.push(book);
-            }
-
-            let chunkAuthorsNames = books.reduce((acc,book) => { book.authors && acc.push(...book.authors); return acc; }, []);
-            let authorsIdsPerNamesLc = await this.getAuthorsIdsPerNamesLc(chunkAuthorsNames);
-
-            for(let book of books){
-                try{
-                    await this.storeBookWithRelations(book, authorsIdsPerNamesLc);
+                    await this.storeBookWithRelations(book, agentsIdsPerUris);
                 }
                 catch (e) {
                     e.message = `unable to store book #${book.id}: ${e.message}`;
                     throw e;
                 }
             }
-            indexChunkStart += chunkIds.length;
 
-            console.log(`${indexChunkStart} books done`);
+            chunkBooks.length = 0;
+            console.log(`${countDone} books done`);
 
         }
 

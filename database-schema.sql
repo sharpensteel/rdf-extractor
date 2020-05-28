@@ -1,14 +1,18 @@
 
 DROP TABLE IF EXISTS `book_author`;
-DROP TABLE IF EXISTS `book_subject`;
 DROP TABLE IF EXISTS `author`;
+
+DROP TABLE IF EXISTS `book_agent`;
+DROP TABLE IF EXISTS `book_subject`;
+DROP TABLE IF EXISTS `agent`;
 DROP TABLE IF EXISTS `book`;
 
-CREATE TABLE `author` (
+CREATE TABLE `agent` (
     `id` int(11) NOT NULL AUTO_INCREMENT,
     `name` varchar(255) DEFAULT NULL,
+    `rdf_uri` varchar(255) DEFAULT NULL,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `name` (`name`)
+    UNIQUE KEY `rdf_uri` (`rdf_uri`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 
@@ -24,15 +28,15 @@ CREATE TABLE `book` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 
-CREATE TABLE `book_author` (
+CREATE TABLE `book_creator` (
        `id` int(11) NOT NULL AUTO_INCREMENT,
        `book_id` int(11) DEFAULT NULL,
-       `author_id` int(11) DEFAULT NULL,
+       `agent_id` int(11) DEFAULT NULL,
        PRIMARY KEY (`id`),
        KEY `book_id` (`book_id`),
-       KEY `author_id` (`author_id`),
-       CONSTRAINT `idx__book_author__book_id` FOREIGN KEY (`book_id`) REFERENCES `book` (`id`) ON DELETE CASCADE,
-       CONSTRAINT `idx__book_author__author_id` FOREIGN KEY (`author_id`) REFERENCES `author` (`id`)
+       KEY `agent_id` (`agent_id`),
+       CONSTRAINT `idx__book_agent__book_id` FOREIGN KEY (`book_id`) REFERENCES `book` (`id`) ON DELETE CASCADE,
+       CONSTRAINT `idx__book_agent__agent_id` FOREIGN KEY (`agent_id`) REFERENCES `agent` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 

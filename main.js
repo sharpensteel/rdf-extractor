@@ -15,6 +15,7 @@ const Knex = require('knex');
 const yargs = require('yargs');
 const fse = require('fs-extra');
 const path = require('path');
+const {createContainer, asFunction, asClass, asValue} = require('awilix')
 
 const RdfBookParser = require("./services/RdfBookParser");
 const BookService = require("./services/BookService");
@@ -22,6 +23,22 @@ const BookService = require("./services/BookService");
 
 
 const RDF_DIRECTORIES_DIR = path.join(__dirname, 'cache', 'epub');
+
+
+
+/**
+ * @typedef {object} RootContainerCradle
+ * @property {Object} dbConfig
+ * @property {Knex} knex
+ * @property {RdfBookParser} rdfBookParser
+ * @property {BookService} bookService
+ */
+
+/**
+ * @typedef {AwilixContainer} RootContainer
+ * @property {RootContainerCradle} cradle
+ */
+
 
 
 /**
@@ -36,22 +53,6 @@ async function initDatabaseSchema(knex){
 }
 
 
-/**
- * @return {Knex}
- */
-function createKnex(){
-    if(!config.has('dbConfig')){
-        throw new Error(`Unable to find "dbConfig" section in configuration files!`);
-    }
-    let knex = Knex({
-        client: 'mysql',
-        connection: {
-            multipleStatements: true,
-            ...config.get('dbConfig'),
-        },
-    });
-    return knex;
-}
 
 
 function parseArguments(){
@@ -75,60 +76,65 @@ function parseArguments(){
 
 async function main() {
 
-    /**
-     * simple functions for working with dependencies:
-     */
+    /** @type {RootContainer} */
+    const container = createContainer();
 
-    let _knex;
-    const getKnex = () => {
-        return _knex ?
-            _knex :
-            _knex = createKnex()
-    };
 
-    let _rdfBookParser;
-    const getRdfBookParser = () => {
-        return _rdfBookParser ?
-            _rdfBookParser :
-            _rdfBookParser = new RdfBookParser({rdfDirectoriesDir: RDF_DIRECTORIES_DIR});
+    if(!config.has('dbConfig')){
+        throw new Error(`Unable to find "dbConfig" section in configuration files!`);
     }
+    const dbConfig = config.get('dbConfig');
 
-    let _BookService;
-    const getBookService = () => {
-        return _BookService ?
-            _BookService :
-            _BookService = new BookService({
-                rdfBookParser: getRdfBookParser(),
-                knex: getKnex(),
+    container.register({
+
+        dbConfig: asValue(dbConfig),
+
+        knex: asFunction(function createKnex({dbConfig}){
+            return Knex({
+                client: 'mysql',
+                connection: {
+                    multipleStatements: true,
+                    ...dbConfig,
+                },
             });
-    }
+        })
+            .scoped()
+            .disposer(knex => knex.destroy()),
+
+        rdfBookParser: asClass(RdfBookParser)
+            .inject(() => ({rdfDirectoriesDir: RDF_DIRECTORIES_DIR}))
+            .scoped(),
+
+        bookService: asClass(BookService)
+            .scoped(),
+    });
 
     const argv = parseArguments();
 
+    const rootCradle = container.cradle;
+
     switch (argv._[0]){
         case 'download-files':{
-            let parser = getRdfBookParser();
-            await parser.downloadFiles();
+            await rootCradle.rdfBookParser.downloadFiles();
             break;
         }
         case 'init-database-schema':{
-            await initDatabaseSchema(getKnex());
+            await initDatabaseSchema(rootCradle.knex);
             break;
         }
         case 'parse-single-book':{
-            let parser = getRdfBookParser();
-            let book = await parser.parseRdfBookById(argv.id);
+            let book = await rootCradle.rdfBookParser.parseRdfBookById(argv.id);
             console.log('parsed book: ', book);
             break;
         }
         case 'parse-all-books-clean':{
-            let BookService = getBookService();
-            await BookService.storeAllBooks(true);
+            let generator = rootCradle.rdfBookParser.iterateAllBooksWithIds();
+            await rootCradle.bookService.storeAllBooks(generator, true);
             break;
         }
         case 'parse-all-books':{
-            let BookService = getBookService();
-            await BookService.storeAllBooks(false);
+            let generator = rootCradle.rdfBookParser.iterateAllBooksWithIds();
+            await rootCradle.bookService.storeAllBooks(generator, false);
             break;
         }
         default:{
@@ -138,9 +144,8 @@ async function main() {
 
     }
 
-    if(_knex){
-        _knex.destroy();
-    }
+
+    await container.dispose();
 }
 
 main()

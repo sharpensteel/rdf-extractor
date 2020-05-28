@@ -1,3 +1,15 @@
+Change list
+--
+1. Authors previously where wrongly identified by names. Now authors uniquely identified by rdf:about uri.
+    
+    need to recreate all tables:     
+    ```
+    npm run init-database-schema
+    ```
+2. Introduced decent Dependency Injection with `awilix`
+
+3. `BookService` is completely decoupled from `RdfBookParser`
+
 
 Setup
 -----
@@ -6,7 +18,8 @@ Setup
 ```
 npm install
 ```
-2. Copy `local.json.example` file to `local.json` and edit database params
+2. Copy `local.json.example` file to `local.json` and setup params to valid  
+    MySQL database.
 
 3. Run:
 ```

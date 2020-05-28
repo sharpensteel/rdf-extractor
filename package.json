@@ -4,20 +4,21 @@
   "description": "",
   "main": "index.js",
   "keywords": [],
-  "author": "",
+  "agent": "",
   "license": "ISC",
   "dependencies": {
+    "awilix": "^4.2.6",
     "chai": "^4.2.0",
     "config": "^3.3.1",
     "download": "^8.0.0",
     "fs-extra": "^9.0.0",
     "knex": "^0.21.1",
     "lodash": "^4.17.15",
-    "mysql": "^2.18.1",
-    "xml2js": "^0.4.23",
-    "yargs": "^15.3.1",
     "mocha": "^7.2.0",
-    "nyc": "^15.0.1"
+    "mysql": "^2.18.1",
+    "nyc": "^15.0.1",
+    "xml2js": "^0.4.23",
+    "yargs": "^15.3.1"
   },
   "scripts": {
     "help": "node --harmony main.js --help",
